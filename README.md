@@ -12,6 +12,8 @@ This repository documents my work to create truly silent animatronic cat ears.
 
 The classic design using RC airplane servos is quite noisy, and I wanted to fix that to build animatronics that you can comfortably hold a conversation around.
 
+Stepper motors turned out to have too little torque with too much heating, brushless motors with field oriented control provided by [SimpleFOC](https://www.simplefoc.com/) have proven to work excellently.
+
 ## Table of Contents
 
 - [FOC Ears: Dead Silent Animatronics, a Prototype](#foc-ears-dead-silent-animatronics-a-prototype)

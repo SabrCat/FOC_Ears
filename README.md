@@ -2,7 +2,8 @@ Hi there! Since the below was written, a few more things have happened:
 
 You can **send me your Email if you want to get involved with development** and I'll reach out. [Click Here](https://app.formbricks.com/s/cmjj02hcw36xmad01dme5074u).
 
-Work has also started on a PCB based version. PCBs have been ordered, and may or may not have arrived in time for Congress. \
+Work has also started on a PCB based version. PCBs have been ordered, and did arrive in time for 39c3. \
+Unfortunately I am out sick, if you can find me in person day 3 I can get you a set of dev PCBs.\
 In any case, you can find all KiCad files [on the rev2 branch](https://github.com/HB-Stratos/FOC_Ears/tree/rev-2).
 
 # FOC Ears: Dead Silent Animatronics, a Prototype
@@ -10,6 +11,8 @@ In any case, you can find all KiCad files [on the rev2 branch](https://github.co
 This repository documents my work to create truly silent animatronic cat ears.
 
 The classic design using RC airplane servos is quite noisy, and I wanted to fix that to build animatronics that you can comfortably hold a conversation around.
+
+Stepper motors turned out to have too little torque with too much heating, brushless motors with field oriented control provided by [SimpleFOC](https://www.simplefoc.com/) have proven to work excellently.
 
 ## Table of Contents
 
@@ -50,7 +53,8 @@ I plan to develop a more robust version with a printed circuit board between the
 
 ## Documentation
 
-> [!IMPORTANT] > **This is a prototype**. I am documenting this for sake of posterity. If you wish to replicate this design, you are welcome to do so. However, expect to face issues, poor design decisions and have expect to solve many stupid problems on your own. Because of this, this is not written as a tutorial, but more as an overview of what it takes. That said, I'm happy to help where I can, just leave an issue on the repo here.
+> [!IMPORTANT]
+> **This is a prototype**. I am documenting this for sake of posterity. If you wish to replicate this design, you are welcome to do so. However, expect to face issues, poor design decisions and have expect to solve many stupid problems on your own. Because of this, this is not written as a tutorial, but more as an overview of what it takes. That said, I'm happy to help where I can, just leave an issue on the repo here.
 
 With that said, lets get into it
 

@@ -78,7 +78,7 @@
 // ============================================================================
 #define VOLTAGE_POWER_SUPPLY 12.0f
 #define PWM_FREQUENCY 40000
-#define TARGET_LOOP_HZ 10000   // target FOC loop rate in Hz; 0 = unlimited
+#define TARGET_FOC_LOOP_HZ 10000   // target FOC loop rate in Hz; 0 = unlimited
 
 // ============================================================================
 // HARDWARE OBJECTS
@@ -172,12 +172,12 @@ unsigned long lastPrint = 0;
 
 void loop()
 {
-    // Fixed-rate throttle — spin-waits to hit TARGET_LOOP_HZ; skipped if 0
-#if TARGET_LOOP_HZ > 0
+    // Fixed-rate throttle — spin-waits to hit TARGET_FOC_LOOP_HZ; skipped if 0
+#if TARGET_FOC_LOOP_HZ > 0
     static uint32_t nextUs = 0;
     if (nextUs == 0) nextUs = micros();
     while (micros() < nextUs) {}
-    nextUs += 1000000UL / TARGET_LOOP_HZ;
+    nextUs += 1000000UL / TARGET_FOC_LOOP_HZ;
 #endif
 
     // EMA-smoothed loop frequency measurement

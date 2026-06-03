@@ -1,4 +1,5 @@
 #include "Arduino.h"
+#include "esp_task_wdt.h"
 #include "SPI.h"
 #include "SimpleFOC.h"
 #include "SimpleFOCDrivers.h"
@@ -122,13 +123,13 @@ void FOC_Task(void *parameter)
         mot2->update();
 
         // Telemetry - I²t + FOC rate diagnostic at 1 Hz
-        static uint8_t diagCount = 0;
+        static uint32_t diagCount = 0;
         if (++diagCount >= TARGET_FOC_LOOP_HZ)
         {
             diagCount = 0;
             const auto &d1 = mot1->diagState();
             const auto &d2 = mot2->diagState();
-            Serial.printf(
+            printf(
                 "M1 %.0fHz Vq:%.2fV I:%.2fA accum:%.3f/%.3f trip:%.0f%% Vlim:%.2fV | "
                 "M2 %.0fHz Vq:%.2fV I:%.2fA accum:%.3f/%.3f trip:%.0f%% Vlim:%.2fV\n",
                 d1.loopFreqHz, d1.voltageQ, d1.currentEst, d1.i2tAccum, d1.i2tThreshold,
@@ -239,9 +240,13 @@ void setup()
         "FOC_Task",
         4096,
         NULL,
-        configMAX_PRIORITIES - 1,
+        1,
         NULL,
         !ARDUINO_RUNNING_CORE);
+
+    // Core 0 is fully dedicated to FOC_Task; remove its idle task from TWDT
+    // so the busy-wait timing loop doesn't trigger the watchdog.
+    esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(!ARDUINO_RUNNING_CORE));
 }
 
 // ============================================================================

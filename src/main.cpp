@@ -18,7 +18,7 @@
 
 // Main application implementations
 #if defined(USE_FOC_EARS)
-    #include "apps/foc_ears_main.cpp"
+    #include "apps_2/foc_ears_main.cpp"
 
 // Utility/debugging tools
 #elif defined(USE_I2C_SCANNER)
@@ -33,10 +33,14 @@
     #include "utils/led_test.cpp"
 #elif defined(USE_VL53L1X_TEST)
     #include "utils/vl53l1x_test.cpp"
-#elif defined(USE_MPU6500_TEST)
-    #include "utils/mpu6500_test.cpp"
+#elif defined(USE_MPU6050_TEST)
+    #include "utils/mpu6050_test.cpp"
 #elif defined(USE_OPENLOOP_TEST)
     #include "utils/openloop_test.cpp"
+#elif defined(USE_CLOSEDLOOP_TEST)
+    #include "utils/closedloop_test.cpp"
+#elif defined(USE_CALIBRATION_TEST)
+    #include "utils/calibration_test.cpp"
 
 #else
     #error "No application mode selected! Please select a PlatformIO environment."

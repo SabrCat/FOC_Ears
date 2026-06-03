@@ -3,12 +3,17 @@
 
 CRGB onboard_led[1];
 
+#define PIN_RGB_LED 8
+
 void setup() {
-  FastLED.addLeds<SK6812, PIN_RGB_LED>(onboard_led, 1);
-  FastLED.setBrightness(255 / 100);
+  FastLED.addLeds<WS2812B, PIN_RGB_LED, GRB>(onboard_led, 1);
+  FastLED.setBrightness(255 / 10);
+  
+  Serial.begin(115200);
 }
 
-void loop() { 
+void loop() {
+  Serial.println("Hi I'm working");
   onboard_led[0] = CRGB::Red; FastLED.show(); delay(500);
   onboard_led[0] = CRGB::Blue; FastLED.show(); delay(500);        
 }

@@ -9,8 +9,8 @@
 // #include <Adafruit_Sensor.h>
 #include <Wire.h>
  
-#define I2C_SDA 5
-#define I2C_SCL 4
+#define I2C_SDA 17
+#define I2C_SCL 18
 
 
 

@@ -47,6 +47,8 @@
 // #define MOTOR_PWM_B 14
 // #define MOTOR_PWM_C 15
 // #define MOTOR_ENABLE 16
+// #define ZERO_ELECTRIC_ANGLE 4.44
+// #define SENSOR_DIRECTION Direction::CW
 
 // Board 2 (uncomment and comment Board 1 above to use)
 #define SENSOR_CS_PIN 48
@@ -54,6 +56,15 @@
 #define MOTOR_PWM_B 47
 #define MOTOR_PWM_C 33
 #define MOTOR_ENABLE 34
+#define ZERO_ELECTRIC_ANGLE 0.57
+#define SENSOR_DIRECTION Direction::CW
+
+#ifndef ZERO_ELECTRIC_ANGLE
+    #define ZERO_ELECTRIC_ANGLE NOT_SET
+#endif
+#ifndef SENSOR_DIRECTION
+    #define SENSOR_DIRECTION Direction::UNKNOWN
+#endif
 
 // ============================================================================
 // MOTOR ELECTRICAL CONFIGURATION
@@ -67,6 +78,7 @@
 // ============================================================================
 #define VOLTAGE_POWER_SUPPLY 12.0f
 #define PWM_FREQUENCY 40000
+#define TARGET_LOOP_HZ 10000   // target FOC loop rate in Hz; 0 = unlimited
 
 // ============================================================================
 // HARDWARE OBJECTS
@@ -131,12 +143,21 @@ void setup()
     motor.voltage_limit = VOLTAGE_POWER_SUPPLY;
 
     motor.useMonitoring(Serial);
-    motor.monitor_downsample = 0;
+    motor.monitor_downsample = 100;
     commander.verbose = VerboseMode::machine_readable;
 
     motor.init();
 
+    if (ZERO_ELECTRIC_ANGLE != NOT_SET && SENSOR_DIRECTION != Direction::UNKNOWN)
+    {
+        motor.zero_electric_angle = ZERO_ELECTRIC_ANGLE;
+        motor.sensor_direction    = SENSOR_DIRECTION;
+    }
+
     motor.initFOC();
+
+    Serial.printf("Calibration: zero_electric_angle=%.4f  sensor_direction=%d\n",
+                  motor.zero_electric_angle, (int)motor.sensor_direction);
 
     // Register Commander
     commander.add('M', onMotor, "motor");
@@ -151,8 +172,32 @@ unsigned long lastPrint = 0;
 
 void loop()
 {
+    // Fixed-rate throttle — spin-waits to hit TARGET_LOOP_HZ; skipped if 0
+#if TARGET_LOOP_HZ > 0
+    static uint32_t nextUs = 0;
+    if (nextUs == 0) nextUs = micros();
+    while (micros() < nextUs) {}
+    nextUs += 1000000UL / TARGET_LOOP_HZ;
+#endif
+
+    // EMA-smoothed loop frequency measurement
+    static uint32_t lastUs     = 0;
+    static float    loopFreqHz = 0.0f;
+    const uint32_t  nowUs      = micros();
+    const float     dt         = (nowUs - lastUs) * 1e-6f;
+    if (lastUs != 0 && dt < 0.1f)
+        loopFreqHz = loopFreqHz * 0.95f + (1.0f / dt) * 0.05f;
+    lastUs = nowUs;
+
     motor.loopFOC();
     motor.move(motor.target);
     motor.monitor();
     commander.run();
+
+    // Print loop frequency every second
+    if (millis() - lastPrint >= 1000)
+    {
+        lastPrint = millis();
+        Serial.printf("FOC loop: %.0f Hz\n", loopFreqHz);
+    }
 }

@@ -35,6 +35,8 @@
     #include "utils/vl53l1x_test.cpp"
 #elif defined(USE_MPU6050_TEST)
     #include "utils/mpu6050_test.cpp"
+#elif defined(USE_MPU6050_CALIBRATION_TEST)
+    #include "utils/mpu6050_calibration_test.cpp"
 #elif defined(USE_OPENLOOP_TEST)
     #include "utils/openloop_test.cpp"
 #elif defined(USE_CLOSEDLOOP_TEST)

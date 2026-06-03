@@ -5,6 +5,8 @@
 #include "encoders/MT6701/MagneticSensorMT6701SSI.h"
 #include <FastLED.h>
 #include <VL53L1X.h>
+#include "IMUSensor.h"
+#include "EarMotor.h"
 
 // ============================================================================
 // PIN CONFIGURATION
@@ -39,6 +41,9 @@
 // Onboard LED
 #define RGB_LED_PIN 8
 
+// IMU
+#define MPU_ADDR 0x68
+
 // ============================================================================
 // MOTOR ELECTRICAL CONFIGURATION
 // ============================================================================
@@ -51,18 +56,33 @@
 // ============================================================================
 #define VOLTAGE_POWER_SUPPLY 12.0f
 #define PWM_FREQUENCY 40000
+#define TARGET_LOOP_HZ 10000 // target FOC loop rate in Hz; 0 = unlimited
 
 // ============================================================================
 // HARDWARE OBJECTS
 // ============================================================================
 
-static SPISettings spiSettings(4000000, MT6701_BITORDER, SPI_MODE2);
+// ── Calibration offsets ───────────────────────────────────────────────────────
+// Paste the six integers from the final output of the calibration sketch:
+//   "Active offsets [XA YA ZA XG YG ZG]:"
+static constexpr int16_t CAL_XA = -3181; // <-- replace
+static constexpr int16_t CAL_YA = -761;
+static constexpr int16_t CAL_ZA = 455;
+static constexpr int16_t CAL_XG = 54;
+static constexpr int16_t CAL_YG = -7;
+static constexpr int16_t CAL_ZG = 4;
 
-MagneticSensorMT6701SSI B1_sensor = MagneticSensorMT6701SSI(B1_SENSOR_CS_PIN, spiSettings);
-BLDCDriver3PWM B1_driver = BLDCDriver3PWM(B1_MOTOR_PWM_A, B1_MOTOR_PWM_B, B1_MOTOR_PWM_C, B1_MOTOR_ENABLE);
-BLDCMotor B1_motor = BLDCMotor(MOTOR_POLE_PAIRS, MOTOR_PHASE_RESISTANCE, MOTOR_KV);
+// ── Sample rate ───────────────────────────────────────────────────────────────
+// Must match the value passed to begin().
+static constexpr float SAMPLE_HZ = 200.0f;
+static constexpr uint32_t INTERVAL_US = static_cast<uint32_t>(1000000.0f / SAMPLE_HZ);
+
+IMUSensor imu;
 
 VL53L1X distanceSensor;
+
+static EarMotor *mot1 = nullptr;
+static EarMotor *mot2 = nullptr;
 
 CRGB onboard_led[1];
 
@@ -71,6 +91,10 @@ void setup()
     delay(2000);
     Serial.begin(115200);
     delay(100);
+
+    // I2C
+
+    Wire.begin(I2C_SDA, I2C_SCL);
 
     // Button
 
@@ -96,45 +120,112 @@ void setup()
 
     // IMU & Mahony
 
-        // FOC
+    if (!imu.begin(Wire, MPU_ADDR,
+                   CAL_XA, CAL_YA, CAL_ZA,
+                   CAL_XG, CAL_YG, CAL_ZG,
+                   SAMPLE_HZ,
+                   0.00f)) // yawDecay: 0.05 → ~20 s time constant
+    {
+        Serial.println("IMU not found — check wiring");
+        while (true)
+        {
+            delay(10);
+        }
+    }
+
+    // FOC
 
     SimpleFOCDebug::enable(&Serial);
 
     SPI.begin(SENSOR_SPI_CLK, SENSOR_SPI_MISO, SENSOR_SPI_MOSI);
-    B1_sensor.init();
 
-    B1_driver.voltage_power_supply = VOLTAGE_POWER_SUPPLY;
-    B1_driver.voltage_limit = VOLTAGE_POWER_SUPPLY;
-    B1_driver.init();
+    EarMotorConfig cfg1;
+    cfg1.forwardAngle = 6.1f;
+    cfg1.backAngle = 3.6f;
+    cfg1.zeroElectricAngle = 4.44;
+    cfg1.sensorDirection = Direction::CW;
 
-    B1_motor.linkSensor(&B1_sensor);
-    B1_motor.linkDriver(&B1_driver);
+    EarMotorConfig cfg2;
+    cfg2.forwardAngle = 1.1f;
+    cfg2.backAngle = 3.6f;
+    cfg2.zeroElectricAngle = 0.57;
+    cfg2.sensorDirection = Direction::CW;
 
-    // Start in closed-loop velocity mode
-    B1_motor.controller = MotionControlType::velocity;
+    mot1 = new EarMotor(SPI, B1_SENSOR_CS_PIN,
+                        B1_MOTOR_PWM_A, B1_MOTOR_PWM_B, B1_MOTOR_PWM_C, B1_MOTOR_ENABLE, cfg1);
+    mot2 = new EarMotor(SPI, B2_SENSOR_CS_PIN,
+                        B2_MOTOR_PWM_A, B2_MOTOR_PWM_B, B2_MOTOR_PWM_C, B2_MOTOR_ENABLE, cfg2);
 
-    B1_motor.PID_velocity.P = 0.6;
-    B1_motor.PID_velocity.I = 0;
-    B1_motor.PID_velocity.D = 0; // motor gets very noisy if this is on
-    B1_motor.PID_velocity.output_ramp = NOT_SET;
-    B1_motor.PID_velocity.limit = B1_driver.voltage_limit;
-    B1_motor.LPF_velocity.Tf = 0.1; // needed to stabilize high P value
-
-    B1_motor.P_angle.P = 50;
-    B1_motor.P_angle.I = 0;
-    B1_motor.P_angle.D = 0.5; // Angle D term works very well, but noisy without LPF
-    B1_motor.P_angle.output_ramp = NOT_SET;
-    B1_motor.P_angle.limit = 20;
-    B1_motor.LPF_angle.Tf = 0.005;
-
-    B1_motor.init();
-
-    B1_motor.initFOC();
+    if (mot1->init() != EarMotor::InitResult::OK)
+    {
+        Serial.println("Motor 1 init failed");
+        while (true)
+        {
+            delay(10);
+        }
+    }
+    if (mot2->init() != EarMotor::InitResult::OK)
+    {
+        Serial.println("Motor 2 init failed");
+        while (true)
+        {
+            delay(10);
+        }
+    }
 }
 
 void loop()
 {
+#if TARGET_LOOP_HZ > 0
+    static uint32_t nextUs = 0;
+    if (nextUs == 0)
+        nextUs = micros();
+    while (micros() < nextUs)
+    {
+    }
+    nextUs += 1000000UL / TARGET_LOOP_HZ;
+#endif
+
+    // Motor setpoint — full-throw 0.5 Hz sine while button held, else midpoint
     if (digitalRead(BOOT_BUTTON_PIN) == LOW) // Button is pressed (active LOW)
     {
+        float t = millis() * 1e-3f;
+        float pos = 1.25f + 1.25f * sinf(2.0f * PI * 0.5f * t);
+        mot1->setPosition(pos);
+        mot2->setPosition(pos);
+    }
+    else
+    {
+        mot1->setPosition(1.25f);
+        mot2->setPosition(1.25f);
+    }
+
+    mot1->update();
+    mot2->update();
+
+    // IMU at fixed rate
+    static uint32_t lastUpdate = 0;
+    const uint32_t now = micros();
+
+    if (now - lastUpdate < INTERVAL_US)
+        return;
+    lastUpdate += INTERVAL_US; // += not = now: no jitter accumulation
+
+    // imu.update();
+
+    // I²t + FOC rate diagnostic at 5 Hz (every 40 IMU ticks at 200 Hz)
+    static uint8_t diagCount = 0;
+    if (++diagCount >= 200)
+    {
+        diagCount = 0;
+        const auto &d1 = mot1->diagState();
+        const auto &d2 = mot2->diagState();
+        Serial.printf(
+            "M1 %.0fHz Vq:%.2fV I:%.2fA accum:%.3f/%.3f trip:%.0f%% Vlim:%.2fV | "
+            "M2 %.0fHz Vq:%.2fV I:%.2fA accum:%.3f/%.3f trip:%.0f%% Vlim:%.2fV\n",
+            d1.loopFreqHz, d1.voltageQ, d1.currentEst, d1.i2tAccum, d1.i2tThreshold,
+            d1.tripRatio * 100.f, d1.voltageLimit,
+            d2.loopFreqHz, d2.voltageQ, d2.currentEst, d2.i2tAccum, d2.i2tThreshold,
+            d2.tripRatio * 100.f, d2.voltageLimit);
     }
 }

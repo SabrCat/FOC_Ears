@@ -19,11 +19,10 @@ bool IMUSensor::begin(TwoWire  &wire,
     // Everything that writes to the chip must come AFTER this call.
     if (!_mpu.begin(addr, &wire)) return false;
 
-    // Ranges must exactly match what was set during calibration.
-    // Calibration sketch uses: ±2 g, ±250°/s.
-    // Changing either here invalidates stored offsets.
+    // Adafruit begin() sets accel ±2 g and gyro ±500°/s.
+    // Accel is re-confirmed explicitly; gyro is left at ±500°/s (GYRO_SCALE = 65.5).
+    // Calibration offsets stored below were computed at these ranges — do not change.
     _mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
-    _mpu.setGyroRange(MPU6050_RANGE_250_DEG);
 
     // Re-apply calibration offsets.  The chip subtracts these from every ADC
     // result before outputting, so readMotion6() returns bias-free data
@@ -97,6 +96,14 @@ bool IMUSensor::update()
     _s.ax = ax;
     _s.ay = ay;
     _s.az = az;
+
+    // Gravity estimate in body frame from roll/pitch Euler angles.
+    const float rRad = _filter.getRollRadians();
+    const float pRad = _filter.getPitchRadians();
+    const float cosPitch = cosf(pRad);
+    _s.lax = ax - (-sinf(pRad));
+    _s.lay = ay - ( sinf(rRad) * cosPitch);
+    _s.laz = az - ( cosf(rRad) * cosPitch);
 
     // Physical-frame gyro rates, before yaw correction, so the caller sees
     // what the sensor measured expressed in the physical frame.

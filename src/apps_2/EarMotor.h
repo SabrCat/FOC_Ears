@@ -29,14 +29,14 @@ struct EarMotorConfig
     Direction sensorDirection = Direction::UNKNOWN;
 
     // Angle PID
-    float anglePidP = 50.0f;
+    float anglePidP = 20.0f;
     float anglePidI = 0.0f;
-    float anglePidD = 0.5f;
+    float anglePidD = 0.1f;
     float anglePidLimit = 20.0f; // rad/s output cap from angle loop
     float angleLpfTf = 0.01f;
 
     // Velocity PID
-    float velPidP = 0.1f;
+    float velPidP = 0.07f;
     float velPidI = 0.0f;
     float velPidD = 0.0f;
     float velLpfTf = 0.1f;

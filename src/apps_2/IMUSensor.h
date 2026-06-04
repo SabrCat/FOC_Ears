@@ -19,8 +19,9 @@ public:
 
     // All outputs in one struct for easy passing around.
     struct State {
-        float ax, ay, az;    // Linear acceleration  [g]
-        float gx, gy, gz;    // Angular rate         [°/s]  (raw, pre-correction)
+        float ax, ay, az;    // Raw acceleration, sensor frame  [g]  (includes gravity)
+        float lax, lay, laz; // Linear acceleration             [g]  (gravity removed)
+        float gx, gy, gz;    // Angular rate                   [°/s]  (raw, pre-correction)
         float roll;          // [°]  gravity-stabilised, never drifts
         float pitch;         // [°]  gravity-stabilised, never drifts
         float yaw;           // [°]  zero-biased (see yawDecay), range [-180, +180]
@@ -70,8 +71,11 @@ public:
 
 private:
     // Scale factors — tied to the ranges set in begin() and used during calibration
-    static constexpr float ACCEL_SCALE = 16384.0f; // ±2 g   →  16384 LSB/g
-    static constexpr float GYRO_SCALE  =   131.0f; // ±250°/s →   131 LSB/(°/s)
+    static constexpr float ACCEL_SCALE = 16384.0f; // ±2 g     →  16384 LSB/g
+    static constexpr float GYRO_SCALE  =    65.5f; // ±500°/s →   65.5 LSB/(°/s)
+    // Note: Adafruit MPU6050::begin() sets the gyro to ±500°/s; the subsequent
+    // setGyroRange(±250°/s) call does not persist on this hardware.  Calibration
+    // was therefore run at ±500°/s, so these two must stay in sync.
 
     // MPU6050 register map
     static constexpr uint8_t REG_ACCEL_XOUT_H = 0x3B;

@@ -291,11 +291,20 @@ void Anim_Task(void *param)
         if (distanceSensor.dataReady())
         {
             const float HEADPAT_THRESHOLD_MM = 150.0f;
-            const float HEADPAT_ATTACK_ALPHA = 0.25f; // τ ≈ 20 ms at 200 Hz
+            const float HEADPAT_ATTACK_ALPHA = 0.01f; // τ ≈ 20 ms at 200 Hz
             float rawDist = (float)distanceSensor.read(false);
-            distSmoothed += (rawDist - distSmoothed) * HEADPAT_ATTACK_ALPHA;
-            if (distSmoothed > HEADPAT_THRESHOLD_MM)
-                distSmoothed = HEADPAT_THRESHOLD_MM;
+            if (distanceSensor.ranging_data.range_status == VL53L1X::RangeValid)
+            {
+                distSmoothed += (rawDist - distSmoothed) * HEADPAT_ATTACK_ALPHA;
+                // Serial.printf(">DistSmooth:%f\n", distSmoothed);
+                if (distSmoothed > HEADPAT_THRESHOLD_MM)
+                    distSmoothed = HEADPAT_THRESHOLD_MM;
+            }
+            else
+            {
+                distSmoothed = 150.0f;
+            }
+            // Serial.printf(">DistSmooth:%f\n:", distSmoothed);
         }
 
         // ── Activity indices ──────────────────────────────────────────────────
@@ -523,8 +532,8 @@ void Anim_Task(void *param)
 
         // ── Finalize ───────────────────────────────────────────────────────────
 
-        Serial.printf(">RightTgt:%f\n", rightTarget);
-        Serial.printf(">LeftTarget:%f\n", leftTarget);
+        // Serial.printf(">RightTgt:%f\n", rightTarget);
+        // Serial.printf(">LeftTarget:%f\n", leftTarget);
 
         mot1->setPosition(constrain(rightTarget, 0.0f, MOTOR_THROW));
         mot2->setPosition(constrain(leftTarget, 0.0f, MOTOR_THROW));
@@ -620,9 +629,9 @@ void setup()
         {
         }
     }
-    distanceSensor.setDistanceMode(VL53L1X::Short);   // better precision at close range (<1.3 m)
-    distanceSensor.setMeasurementTimingBudget(20000); // 20 ms — minimum for Short mode
-    distanceSensor.startContinuous(20);               // 50 Hz
+    distanceSensor.setDistanceMode(VL53L1X::Medium);  // better precision at close range (<1.3 m)
+    distanceSensor.setMeasurementTimingBudget(50000); // 20 ms — minimum for Short mode
+    distanceSensor.startContinuous(50);               // 20hz
 
     // IMU & Mahony
     g_status = SystemStatus::INIT_IMU;

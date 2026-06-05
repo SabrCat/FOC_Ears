@@ -1,10 +1,10 @@
+Hi there! Greetings from GPN24.
+
+**The new PCB version is working** but there is no dedicated documentation yet. All code and KiCad files are available [on the rev2 branch](https://github.com/HB-Stratos/FOC_Ears/tree/rev-2), 3d printed parts will follow shortly after GPN. Documentation will also follow soon. The PCB is fully functional and all sensors have been tested, though the debounce capacitor on the boot button is too large for the internal pull-up resistor, so the board boots into bootloader if it hasn't been on in a while. 
+
 Hi there! Since the below was written, a few more things have happened:
 
-You can **send me your Email if you want to get involved with development** and I'll reach out. [Click Here](https://app.formbricks.com/s/cmjj02hcw36xmad01dme5074u).
-
-Work has also started on a PCB based version. PCBs have been ordered, and did arrive in time for 39c3. \
-Unfortunately I am out sick, if you can find me in person day 3 I can get you a set of dev PCBs.\
-In any case, you can find all KiCad files [on the rev2 branch](https://github.com/HB-Stratos/FOC_Ears/tree/rev-2).
+Also, you can still **send me your Email if you want to get involved with development** and I'll reach out (or just open an issue). [Click Here](https://app.formbricks.com/s/cmjj02hcw36xmad01dme5074u).
 
 # FOC Ears: Dead Silent Animatronics, a Prototype
 

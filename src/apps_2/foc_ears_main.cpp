@@ -291,8 +291,9 @@ void Anim_Task(void *param)
         if (distanceSensor.dataReady())
         {
             const float HEADPAT_THRESHOLD_MM = 150.0f;
-            const float HEADPAT_ATTACK_ALPHA = 0.01f; // τ ≈ 20 ms at 200 Hz
+            const float HEADPAT_ATTACK_ALPHA = 0.5f; // τ ≈ 20 ms at 200 Hz
             float rawDist = (float)distanceSensor.read(false);
+            // Serial.printf(">RawDist:%f\n", rawDist);
             if (distanceSensor.ranging_data.range_status == VL53L1X::RangeValid)
             {
                 distSmoothed += (rawDist - distSmoothed) * HEADPAT_ATTACK_ALPHA;
@@ -356,15 +357,15 @@ void Anim_Task(void *param)
         rightTarget += socialOffset;
         leftTarget += socialOffset;
 
-        float nodMotionOffset = imuState.gy / 200.0f * 0.2f * socialNorm;
+        float nodMotionOffset = imuState.gy / 200.0f * 0.3f * socialNorm;
         rightTarget += nodMotionOffset;
         leftTarget += nodMotionOffset;
 
-        float headRotationLookaheadOffset = imuState.gz / 100.0f * 0.2f;
+        float headRotationLookaheadOffset = imuState.gz / 100.0f * 0.3f;
         rightTarget += -constrain(headRotationLookaheadOffset, -1.0f, 0);
         leftTarget += constrain(headRotationLookaheadOffset, 0, 1.0f);
 
-        float walkingAccelerationOffset = imuState.laz * 2.0f * 0.5f * gaitSuppress;
+        float walkingAccelerationOffset = imuState.laz * 2.0f * 0.6f * gaitSuppress;
         walkingAccelerationOffset = constrain(walkingAccelerationOffset, -0.3f, 0.3f);
         rightTarget += walkingAccelerationOffset;
         leftTarget += walkingAccelerationOffset;

@@ -43,6 +43,8 @@
     #include "utils/closedloop_test.cpp"
 #elif defined(USE_CALIBRATION_TEST)
     #include "utils/calibration_test.cpp"
+#elif defined(USE_BOARD_CALIBRATION)
+    #include "utils/board_calibration.cpp"
 
 #else
     #error "No application mode selected! Please select a PlatformIO environment."

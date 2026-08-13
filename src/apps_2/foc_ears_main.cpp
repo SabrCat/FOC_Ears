@@ -9,6 +9,7 @@
 #include <VL53L1X.h>
 #include "IMUSensor.h"
 #include "EarMotor.h"
+#include "board_config.h" // ACTIVE_BOARD — per-unit calibration + capability profile
 
 // ============================================================================
 #pragma region CONFIGURATION
@@ -65,14 +66,8 @@ static constexpr float COMMAND_LPF_HZ = 8.0f;
 #pragma region HARDWARE
 // ============================================================================
 
-// IMU Calibration offsets
-// From calibration sketch final output: "Active offsets [XA YA ZA XG YG ZG]:"
-static constexpr int16_t CAL_XA = -3181;
-static constexpr int16_t CAL_YA = -761;
-static constexpr int16_t CAL_ZA = 455;
-static constexpr int16_t CAL_XG = 54;
-static constexpr int16_t CAL_YG = -7;
-static constexpr int16_t CAL_ZG = 4;
+// IMU calibration offsets now live in the active board profile (ACTIVE_BOARD),
+// selected at build time via board_config.h.
 
 // IMU Sample rate (must match value passed to begin())
 static constexpr float SAMPLE_HZ = 200.0f;
@@ -100,6 +95,11 @@ enum class SystemStatus : uint8_t
     ERROR,        // solid red — stuck in while(true), LED_Task never starts
 };
 volatile SystemStatus g_status = SystemStatus::STARTING;
+
+// Distance-sensor runtime state — written in setup(), read by Anim_Task (to skip
+// reads) and the LED task (fault indication). bool writes are atomic on ESP32.
+volatile bool g_tofActive = false; // sensor present and initialised → safe to read
+volatile bool g_tofFault = false;  // board expects a sensor but it failed to init → warn
 
 // ============================================================================
 #pragma endregion
@@ -163,6 +163,19 @@ void updateStatusLED()
         break;
     case SystemStatus::RUNNING:
     {
+        // ToF fault overlay — board expected a distance sensor but it didn't init.
+        // Green breathing with a periodic cyan double-blink: distinct from the solid-red
+        // hard error and the thermal amber/red states, mnemonically tied to INIT_TOF cyan.
+        if (g_tofFault)
+        {
+            float cycle = fmodf(t, 3.0f); // 3 s period
+            bool blink = (cycle < 0.2f) || (cycle >= 0.4f && cycle < 0.6f);
+            if (blink)
+            {
+                onboard_led[0] = CRGB(0, 150, 150);
+                break;
+            }
+        }
         float breath = 0.9f + 0.15f * sinf(2.0f * PI / 2.0f * t);
         onboard_led[0] = CRGB(0, (uint8_t)(breath * 20.0f), 0);
         break;
@@ -288,7 +301,7 @@ void Anim_Task(void *param)
         // ToF: only consume a new measurement when one is ready.
         // EMA smoothing filters jitter while close; clamp keeps distSmoothed at the
         // threshold when nothing is nearby so the filter responds instantly on approach.
-        if (distanceSensor.dataReady())
+        if (g_tofActive && distanceSensor.dataReady())
         {
             const float HEADPAT_THRESHOLD_MM = 150.0f;
             const float HEADPAT_ATTACK_ALPHA = 0.5f; // τ ≈ 20 ms at 200 Hz
@@ -613,33 +626,44 @@ void setup()
     delay(2000);
     Serial.begin(115200);
     delay(100);
+    Serial.printf("FOC Ears — active board profile: %s\n", ACTIVE_BOARD.name);
 
     Wire.begin(I2C_SDA, I2C_SCL);
     pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
 
-    // Distance Sensor — Short mode, 50 Hz continuous
-    g_status = SystemStatus::INIT_TOF;
-    updateStatusLED();
-    distanceSensor.setTimeout(500);
-    if (!distanceSensor.init())
+    // Distance Sensor — only if this unit is populated with one (board profile).
+    //   expected + found     → normal headpat operation
+    //   expected + not found → degrade (no headpat) and warn via LED; never brick
+    //   not expected         → skip silently, no fault indication
+    if (ACTIVE_BOARD.expectsDistanceSensor)
     {
-        g_status = SystemStatus::ERROR;
+        g_status = SystemStatus::INIT_TOF;
         updateStatusLED();
-        Serial.println("Failed to detect and initialize VL53L1X sensor");
-        while (1)
+        distanceSensor.setTimeout(500);
+        if (distanceSensor.init())
         {
+            distanceSensor.setDistanceMode(VL53L1X::Medium);  // better precision at close range (<1.3 m)
+            distanceSensor.setMeasurementTimingBudget(50000); // 20 ms — minimum for Short mode
+            distanceSensor.startContinuous(50);               // 20hz
+            g_tofActive = true;
+        }
+        else
+        {
+            g_tofFault = true; // expected but not found → warn via LED, keep running
+            Serial.println("VL53L1X expected but not detected — continuing without headpat");
         }
     }
-    distanceSensor.setDistanceMode(VL53L1X::Medium);  // better precision at close range (<1.3 m)
-    distanceSensor.setMeasurementTimingBudget(50000); // 20 ms — minimum for Short mode
-    distanceSensor.startContinuous(50);               // 20hz
+    else
+    {
+        Serial.println("Distance sensor not populated on this board — headpat disabled");
+    }
 
     // IMU & Mahony
     g_status = SystemStatus::INIT_IMU;
     updateStatusLED();
     if (!imu.begin(Wire, MPU_ADDR,
-                   CAL_XA, CAL_YA, CAL_ZA,
-                   CAL_XG, CAL_YG, CAL_ZG,
+                   ACTIVE_BOARD.imuAccelOffsetX, ACTIVE_BOARD.imuAccelOffsetY, ACTIVE_BOARD.imuAccelOffsetZ,
+                   ACTIVE_BOARD.imuGyroOffsetX, ACTIVE_BOARD.imuGyroOffsetY, ACTIVE_BOARD.imuGyroOffsetZ,
                    SAMPLE_HZ,
                    0.0f)) // yawDecay: surprisingly not necessary
     {
@@ -659,20 +683,24 @@ void setup()
     // Command LPF time constant: Tf = 1/(2π·fc), derived from COMMAND_LPF_HZ.
     const float commandLpfTf = 1.0f / (2.0f * PI * COMMAND_LPF_HZ);
 
-    // Motor 1 — right ear (Board 1)
+    // Motor 1 — right ear (driver board 1). Calibration from the active board profile.
     EarMotorConfig cfg1;
-    cfg1.forwardAngle = 6.1f;
-    cfg1.backAngle = 3.6f;
-    cfg1.zeroElectricAngle = 4.44;
-    cfg1.sensorDirection = Direction::CW;
+    cfg1.supplyVoltage = ACTIVE_BOARD.supplyVoltage;
+    cfg1.voltageLimit = ACTIVE_BOARD.voltageLimit;
+    cfg1.forwardAngle = ACTIVE_BOARD.motor1ForwardLimit;
+    cfg1.backAngle = ACTIVE_BOARD.motor1BackLimit;
+    cfg1.zeroElectricAngle = ACTIVE_BOARD.motor1ZeroElectricAngle;
+    cfg1.sensorDirection = ACTIVE_BOARD.motor1Direction;
     cfg1.commandLpfTf = commandLpfTf;
 
-    // Motor 2 — left ear (Board 2)
+    // Motor 2 — left ear (driver board 2). Calibration from the active board profile.
     EarMotorConfig cfg2;
-    cfg2.forwardAngle = 1.1f;
-    cfg2.backAngle = 3.6f;
-    cfg2.zeroElectricAngle = 0.57;
-    cfg2.sensorDirection = Direction::CW;
+    cfg2.supplyVoltage = ACTIVE_BOARD.supplyVoltage;
+    cfg2.voltageLimit = ACTIVE_BOARD.voltageLimit;
+    cfg2.forwardAngle = ACTIVE_BOARD.motor2ForwardLimit;
+    cfg2.backAngle = ACTIVE_BOARD.motor2BackLimit;
+    cfg2.zeroElectricAngle = ACTIVE_BOARD.motor2ZeroElectricAngle;
+    cfg2.sensorDirection = ACTIVE_BOARD.motor2Direction;
     cfg2.commandLpfTf = commandLpfTf;
 
     mot1 = new EarMotor(SPI, B1_SENSOR_CS_PIN,

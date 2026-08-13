@@ -1,6 +1,15 @@
 #include "EarMotor.h"
 #include <math.h>
 
+namespace
+{
+// Map an angle to (-π, π]. Used to unwrap the boot position onto the travel arc.
+inline float wrapToPi(float x)
+{
+    return x - _2PI * floorf(x / _2PI + 0.5f);
+}
+} // namespace
+
 EarMotor::EarMotor(SPIClass &spi, uint8_t sensorCS,
                    uint8_t pwmA, uint8_t pwmB, uint8_t pwmC, uint8_t enable,
                    const EarMotorConfig &cfg)
@@ -64,13 +73,25 @@ EarMotor::InitResult EarMotor::init()
     // have temporarily drawn current during the alignment spin).
     _motor.voltage_limit = _cfg.voltageLimit;
 
-    // Sanity-check that the sensor reports a position within the physical range.
-    // OUT_OF_RANGE most likely indicates wrong or corrupt stored calibration.
+    // Wrap-safe branch re-anchor. The angle controller drives (target - shaft_angle)
+    // with no wrapping, so if the ear boots on a sensor branch ~2π away from the
+    // target's branch (encoder seam inside the travel arc, or the ear resting far
+    // from forward) it would chase the setpoint the long way — into a mechanical
+    // stop. Re-seat shaft_angle onto the arc by shifting sensor_offset a whole number
+    // of turns. Multiples of 2π leave every target's physical meaning unchanged and
+    // feed only shaftAngle(), not commutation. Well-defined because the throw (< π)
+    // is confined by the stops, so the boot position is always within π of the arc
+    // midpoint. Assumes sensor_direction CW, as toSensorAngle's raw convention does.
     _sensor.update();
-    float angle = _sensor.getAngle();
-    float lo = fminf(_cfg.forwardAngle, _cfg.backAngle);
-    float hi = fmaxf(_cfg.forwardAngle, _cfg.backAngle);
-    if (angle < lo - 0.3f || angle > hi + 0.3f)
+    const float mid = 0.5f * (_cfg.forwardAngle + _cfg.backAngle);
+    const float u0 = mid + wrapToPi(_sensor.getMechanicalAngle() - mid); // unwrapped onto arc
+    _motor.sensor_offset = _sensor.getAngle() - u0;                      // always k·2π
+
+    // Sanity-check the unwrapped boot position is within the physical range.
+    // OUT_OF_RANGE most likely indicates wrong calibration or a disassembled ear.
+    const float lo = fminf(_cfg.forwardAngle, _cfg.backAngle);
+    const float hi = fmaxf(_cfg.forwardAngle, _cfg.backAngle);
+    if (u0 < lo - 0.3f || u0 > hi + 0.3f)
         return InitResult::OUT_OF_RANGE;
 
     _lastUpdateUs = micros();

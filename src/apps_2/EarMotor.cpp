@@ -89,10 +89,15 @@ EarMotor::InitResult EarMotor::init()
 
     // Sanity-check the unwrapped boot position is within the physical range.
     // OUT_OF_RANGE most likely indicates wrong calibration or a disassembled ear.
-    const float lo = fminf(_cfg.forwardAngle, _cfg.backAngle);
-    const float hi = fmaxf(_cfg.forwardAngle, _cfg.backAngle);
-    if (u0 < lo - 0.3f || u0 > hi + 0.3f)
-        return InitResult::OUT_OF_RANGE;
+    // Only meaningful with hard stops: a stopless ear rests at any angle, so an
+    // off-arc boot is normal there and must not brick — skip the check.
+    if (_cfg.hasMechanicalStops)
+    {
+        const float lo = fminf(_cfg.forwardAngle, _cfg.backAngle);
+        const float hi = fmaxf(_cfg.forwardAngle, _cfg.backAngle);
+        if (u0 < lo - 0.3f || u0 > hi + 0.3f)
+            return InitResult::OUT_OF_RANGE;
+    }
 
     _lastUpdateUs = micros();
     return InitResult::OK;

@@ -22,6 +22,13 @@ struct EarMotorConfig
     float forwardAngle = NAN;
     float backAngle = NAN;
 
+    // True if this ear has hard mechanical stops confining it to its travel arc.
+    // When true, init() rejects a boot position outside the arc (OUT_OF_RANGE) —
+    // off-arc means miscalibration or disassembly. When false (no stops, the ear
+    // can rest at any angle) the range check is skipped so boot never bricks; the
+    // wrap-safe re-anchor still bounds the boot swing to the arc midpoint.
+    bool hasMechanicalStops = true;
+
     // Stored calibration. If zeroElectricAngle != NOT_SET, init() skips the
     // alignment spin and uses these values directly. Call getCalibration()
     // after first-run init() to retrieve values for persistent storage.

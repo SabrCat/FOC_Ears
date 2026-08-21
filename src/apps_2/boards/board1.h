@@ -26,5 +26,18 @@ static constexpr BoardProfile ACTIVE_BOARD = {
     .motor2ZeroElectricAngle = 0.57f,
     .motor2Direction = Direction::CW,
 
+    .hasMechanicalStops = true, // original prototype — both ears have hard stops
+
+    // Control-loop tuning — current defaults (unchanged from EarMotorConfig).
+    .anglePidP = 20.0f,
+    .anglePidI = 0.0f,
+    .anglePidD = 0.1f,
+    .anglePidLimit = 20.0f,
+    .angleLpfTf = 0.01f,
+    .velPidP = 0.07f,
+    .velPidI = 0.0f,
+    .velPidD = 0.0f,
+    .velLpfTf = 0.1f,
+
     .expectsDistanceSensor = true,
 };

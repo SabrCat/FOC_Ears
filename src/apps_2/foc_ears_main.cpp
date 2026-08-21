@@ -92,7 +92,8 @@ enum class SystemStatus : uint8_t
     INIT_MOTOR_1, // yellow — right ear aligning
     INIT_MOTOR_2, // orange — left ear aligning
     RUNNING,      // green breathing (thermal auto-overrides in LED_Task)
-    ERROR,        // solid red — stuck in while(true), LED_Task never starts
+    ERROR,        // solid red — dead/missing hardware; stuck in while(true)
+    ERROR_CALIB,  // slow amber blink — boot position off-arc (recalibrate, not dead hw)
 };
 volatile SystemStatus g_status = SystemStatus::STARTING;
 
@@ -183,6 +184,16 @@ void updateStatusLED()
     case SystemStatus::ERROR:
         onboard_led[0] = CRGB(200, 0, 0);
         break;
+    case SystemStatus::ERROR_CALIB:
+    {
+        // Slow amber blink — positional/calibration boot fault. Deliberately distinct
+        // from the solid-red hard fault: the ear booted off its arc (recalibrate or
+        // reseat), not a dead sensor. ~1.3 Hz. Needs repeated calls to animate, so the
+        // halt loop keeps calling updateStatusLED() rather than blocking on delay.
+        bool on = fmodf(t, 0.75f) < 0.375f;
+        onboard_led[0] = on ? CRGB(200, 60, 0) : CRGB::Black;
+        break;
+    }
     }
     FastLED.show();
 }
@@ -597,6 +608,57 @@ void FOC_Task(void *parameter)
 #pragma region SETUP
 // ============================================================================
 
+// Names an EarMotor::InitResult for the serial log.
+const char *initResultName(EarMotor::InitResult result)
+{
+    switch (result)
+    {
+    case EarMotor::InitResult::OK:
+        return "OK";
+    case EarMotor::InitResult::CONFIG_ERROR:
+        return "CONFIG_ERROR";
+    case EarMotor::InitResult::FOC_FAILED:
+        return "FOC_FAILED";
+    case EarMotor::InitResult::OUT_OF_RANGE:
+        return "OUT_OF_RANGE";
+    }
+    return "UNKNOWN";
+}
+
+// Halts boot on a motor init failure, forever. OUT_OF_RANGE (the ear booted off its
+// arc — a positional/calibration fault) gets its own amber-blink LED code; every
+// other failure is dead/missing hardware and shows solid red. Keeps calling
+// updateStatusLED() so the blink animates without the LED task running.
+void haltOnMotorFault(int motorNumber, EarMotor::InitResult result)
+{
+    Serial.printf("Motor %d init failed: %s\n", motorNumber, initResultName(result));
+    g_status = (result == EarMotor::InitResult::OUT_OF_RANGE)
+                   ? SystemStatus::ERROR_CALIB
+                   : SystemStatus::ERROR;
+    while (true)
+    {
+        updateStatusLED();
+        delay(50);
+    }
+}
+
+// Applies the per-unit fields shared by both ears (stops flag + control-loop tuning)
+// from the active board profile. Per-motor fields (angles, calibration) are set by
+// the caller.
+void applyUnitTuning(EarMotorConfig &cfg)
+{
+    cfg.hasMechanicalStops = ACTIVE_BOARD.hasMechanicalStops;
+    cfg.anglePidP = ACTIVE_BOARD.anglePidP;
+    cfg.anglePidI = ACTIVE_BOARD.anglePidI;
+    cfg.anglePidD = ACTIVE_BOARD.anglePidD;
+    cfg.anglePidLimit = ACTIVE_BOARD.anglePidLimit;
+    cfg.angleLpfTf = ACTIVE_BOARD.angleLpfTf;
+    cfg.velPidP = ACTIVE_BOARD.velPidP;
+    cfg.velPidI = ACTIVE_BOARD.velPidI;
+    cfg.velPidD = ACTIVE_BOARD.velPidD;
+    cfg.velLpfTf = ACTIVE_BOARD.velLpfTf;
+}
+
 // Hardware initialization and task dispatch
 void setup()
 {
@@ -609,6 +671,12 @@ void setup()
     esp_reset_reason_t resetReason = esp_reset_reason();
     if (resetReason == ESP_RST_TASK_WDT || resetReason == ESP_RST_INT_WDT)
     {
+        // Serial isn't up yet, and USB CDC needs ~1–2 s to re-enumerate after the
+        // reset, so start it and print the fault once, mid-blink, when a reconnected
+        // monitor can actually receive it. The magenta blink still appears instantly.
+        Serial.begin(115200);
+        bool faultPrinted = false;
+        const uint32_t bootMs = millis();
         for (;;)
         {
             onboard_led[0] = CRGB(200, 0, 200);
@@ -617,6 +685,13 @@ void setup()
             onboard_led[0] = CRGB::Black;
             FastLED.show();
             delay(250);
+            if (!faultPrinted && millis() - bootMs > 1500)
+            {
+                Serial.printf("FATAL: reset by %s — watchdog lockout, halting. Manual reset required.\n",
+                              resetReason == ESP_RST_TASK_WDT ? "task watchdog" : "interrupt watchdog");
+                Serial.flush();
+                faultPrinted = true;
+            }
         }
     }
 
@@ -685,6 +760,7 @@ void setup()
 
     // Motor 1 — right ear (driver board 1). Calibration from the active board profile.
     EarMotorConfig cfg1;
+    applyUnitTuning(cfg1);
     cfg1.supplyVoltage = ACTIVE_BOARD.supplyVoltage;
     cfg1.voltageLimit = ACTIVE_BOARD.voltageLimit;
     cfg1.forwardAngle = ACTIVE_BOARD.motor1ForwardLimit;
@@ -695,6 +771,7 @@ void setup()
 
     // Motor 2 — left ear (driver board 2). Calibration from the active board profile.
     EarMotorConfig cfg2;
+    applyUnitTuning(cfg2);
     cfg2.supplyVoltage = ACTIVE_BOARD.supplyVoltage;
     cfg2.voltageLimit = ACTIVE_BOARD.voltageLimit;
     cfg2.forwardAngle = ACTIVE_BOARD.motor2ForwardLimit;
@@ -710,29 +787,15 @@ void setup()
 
     g_status = SystemStatus::INIT_MOTOR_1;
     updateStatusLED();
-    if (mot1->init() != EarMotor::InitResult::OK)
-    {
-        g_status = SystemStatus::ERROR;
-        updateStatusLED();
-        Serial.println("Motor 1 init failed");
-        while (true)
-        {
-            delay(10);
-        }
-    }
+    EarMotor::InitResult r1 = mot1->init();
+    if (r1 != EarMotor::InitResult::OK)
+        haltOnMotorFault(1, r1);
 
     g_status = SystemStatus::INIT_MOTOR_2;
     updateStatusLED();
-    if (mot2->init() != EarMotor::InitResult::OK)
-    {
-        g_status = SystemStatus::ERROR;
-        updateStatusLED();
-        Serial.println("Motor 2 init failed");
-        while (true)
-        {
-            delay(10);
-        }
-    }
+    EarMotor::InitResult r2 = mot2->init();
+    if (r2 != EarMotor::InitResult::OK)
+        haltOnMotorFault(2, r2);
 
     g_status = SystemStatus::RUNNING;
     updateStatusLED();

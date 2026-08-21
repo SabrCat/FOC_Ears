@@ -31,5 +31,18 @@ static constexpr BoardProfile ACTIVE_BOARD = {
     .motor2ZeroElectricAngle = 1.7085f,
     .motor2Direction = Direction::CW,
 
+    .hasMechanicalStops = false, // no mechanical stops — ears rest at any angle
+
+    // Control-loop tuning — defaults except velPidP.
+    .anglePidP = 20.0f,
+    .anglePidI = 0.0f,
+    .anglePidD = 0.1f,
+    .anglePidLimit = 20.0f,
+    .angleLpfTf = 0.01f,
+    .velPidP = 0.03f, // tuned on the bench 2026-08-21 — behaves well
+    .velPidI = 0.03f, // integral for the frictionless inertia plant — holds position without droop, no shake
+    .velPidD = 0.0f,
+    .velLpfTf = 0.1f,
+
     .expectsDistanceSensor = false,
 };

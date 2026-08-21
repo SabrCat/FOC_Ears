@@ -41,6 +41,21 @@ struct BoardProfile
     float motor2ZeroElectricAngle;
     Direction motor2Direction;
 
+    // True if this unit's ears have hard mechanical stops at their travel limits.
+    // Gates the OUT_OF_RANGE boot check per unit (see EarMotorConfig). A unit without
+    // stops rests at any angle and must not brick on an off-arc boot. Applies to both
+    // ears of the unit; split into per-motor flags if one ear ever differs.
+    bool hasMechanicalStops;
+
+    // Control-loop tuning — one set applied to BOTH ears of this unit, because
+    // mechanics and load are per-unit. Defaults match EarMotorConfig; override per
+    // unit as tuning requires. Split into per-motor sets if the two ears diverge.
+    float anglePidP, anglePidI, anglePidD;
+    float anglePidLimit; // rad/s output cap from the angle loop
+    float angleLpfTf;
+    float velPidP, velPidI, velPidD;
+    float velLpfTf;
+
     // True if this unit is populated with a VL53L1X distance sensor. When true
     // and the sensor fails to init, the firmware degrades (no headpat) and warns
     // via the LED rather than bricking. When false, the sensor is skipped silently.
